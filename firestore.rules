@@ -1,0 +1,234 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Reusable Hardened Primitives ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll([
+        'uid', 'displayName', 'preferredVoice', 'speakingStyle', 'preferredLanguage', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'uid', 'displayName', 'preferredVoice', 'speakingStyle', 'preferredLanguage', 'createdAt', 'updatedAt'
+      ]) &&
+      data.uid is string && data.uid == userId && isValidId(data.uid) &&
+      data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+      data.preferredVoice in ['Zephyr', 'Puck', 'Charon', 'Kore', 'Fenrir'] &&
+      data.speakingStyle in ['concise', 'natural', 'technical', 'warm'] &&
+      data.preferredLanguage in ['auto', 'en', 'ur', 'ur-Latn'] &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidUserMemory(data, userId) {
+      return data.keys().hasAll([
+        'userId', 'fact', 'category', 'source', 'approvedByUser', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'userId', 'fact', 'category', 'source', 'approvedByUser', 'createdAt', 'updatedAt'
+      ]) &&
+      data.userId is string && data.userId == userId && isValidId(data.userId) &&
+      data.fact is string && data.fact.size() >= 1 && data.fact.size() <= 1000 &&
+      data.category in ['preference', 'project', 'fact', 'instruction'] &&
+      data.source in ['voice', 'text', 'manual'] &&
+      data.approvedByUser is bool && data.approvedByUser == true &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidSession(data, userId) {
+      return data.keys().hasAll([
+        'userId', 'title', 'mode', 'language', 'summary', 'messageCount', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'userId', 'title', 'mode', 'language', 'summary', 'messageCount', 'createdAt', 'updatedAt'
+      ]) &&
+      data.userId is string && data.userId == userId && isValidId(data.userId) &&
+      data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+      data.mode in ['voice', 'text', 'multimodal'] &&
+      data.language in ['auto', 'en', 'ur', 'ur-Latn'] &&
+      data.summary is string && data.summary.size() <= 2000 &&
+      data.messageCount is int && data.messageCount >= 0 && data.messageCount <= 5000 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidSessionMessage(data, userId, sessionId) {
+      return data.keys().hasAll([
+        'userId', 'sessionId', 'role', 'content', 'modality', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'userId', 'sessionId', 'role', 'content', 'modality', 'agentRoute', 'latencyMs', 'createdAt'
+      ]) &&
+      data.userId is string && data.userId == userId && isValidId(data.userId) &&
+      data.sessionId is string && data.sessionId == sessionId && isValidId(data.sessionId) &&
+      data.role in ['user', 'assistant', 'system'] &&
+      data.content is string && data.content.size() >= 1 && data.content.size() <= 12000 &&
+      data.modality in ['voice', 'text'] &&
+      (!('agentRoute' in data) || (data.agentRoute is string && data.agentRoute.size() <= 64)) &&
+      (!('latencyMs' in data) || (data.latencyMs is int && data.latencyMs >= 0 && data.latencyMs <= 600000)) &&
+      data.createdAt is timestamp;
+    }
+
+    function isValidKnowledgeDocument(data, userId) {
+      return data.keys().hasAll([
+        'userId', 'filename', 'mimeType', 'sizeBytes', 'chunkCount', 'status', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'userId', 'filename', 'mimeType', 'sizeBytes', 'chunkCount', 'status', 'summary', 'createdAt', 'updatedAt'
+      ]) &&
+      data.userId is string && data.userId == userId && isValidId(data.userId) &&
+      data.filename is string && data.filename.size() >= 1 && data.filename.size() <= 240 &&
+      data.mimeType is string && data.mimeType.size() >= 1 && data.mimeType.size() <= 120 &&
+      data.sizeBytes is int && data.sizeBytes >= 0 && data.sizeBytes <= 20971520 &&
+      data.chunkCount is int && data.chunkCount >= 0 && data.chunkCount <= 5000 &&
+      data.status in ['processing', 'indexed', 'error'] &&
+      (!('summary' in data) || (data.summary is string && data.summary.size() <= 2000)) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidAuditLog(data, userId) {
+      return data.keys().hasAll([
+        'userId', 'eventType', 'action', 'status', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'userId', 'eventType', 'action', 'status', 'latencyMs', 'createdAt'
+      ]) &&
+      data.userId is string && data.userId == userId && isValidId(data.userId) &&
+      data.eventType in ['tool_call', 'memory_consent', 'rag_ingest', 'a2a_dispatch', 'security_guard', 'voice_session'] &&
+      data.action is string && data.action.size() >= 1 && data.action.size() <= 120 &&
+      data.status in ['success', 'denied', 'error'] &&
+      (!('latencyMs' in data) || (data.latencyMs is int && data.latencyMs >= 0 && data.latencyMs <= 600000)) &&
+      data.createdAt is timestamp;
+    }
+
+    // --- Collection Rules ---
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if isOwner(userId) && resource.data.uid == request.auth.uid;
+      allow create: if isValidId(userId) && isOwner(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(userId) && isOwner(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'preferredVoice', 'speakingStyle', 'preferredLanguage', 'updatedAt'
+        ]);
+      allow delete: if isValidId(userId) && isOwner(userId);
+
+      // User-Approved Long-Term Memory
+      match /memories/{memoryId} {
+        allow get: if isValidId(userId) && isValidId(memoryId) && isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(memoryId) && isOwner(userId) &&
+          isValidUserMemory(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(memoryId) && isOwner(userId) &&
+          isValidUserMemory(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'fact', 'category', 'updatedAt'
+          ]);
+        allow delete: if isValidId(userId) && isValidId(memoryId) && isOwner(userId);
+      }
+
+      // Conversation Sessions
+      match /sessions/{sessionId} {
+        allow get: if isValidId(userId) && isValidId(sessionId) && isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(sessionId) && isOwner(userId) &&
+          isValidSession(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(sessionId) && isOwner(userId) &&
+          isValidSession(incoming(), userId) &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'title', 'mode', 'language', 'summary', 'messageCount', 'updatedAt'
+          ]);
+        allow delete: if isValidId(userId) && isValidId(sessionId) && isOwner(userId);
+
+        // Session Messages (Master Gate checks parent session exists)
+        match /messages/{messageId} {
+          allow get: if isValidId(userId) && isValidId(sessionId) && isValidId(messageId) && isOwner(userId);
+          allow list: if isOwner(userId) && resource.data.userId == request.auth.uid && resource.data.sessionId == sessionId;
+          allow create: if isValidId(userId) && isValidId(sessionId) && isValidId(messageId) && isOwner(userId) &&
+            isValidSessionMessage(incoming(), userId, sessionId) &&
+            incoming().createdAt == request.time &&
+            exists(/databases/$(database)/documents/users/$(userId)/sessions/$(sessionId));
+          allow update: if false;
+          allow delete: if isValidId(userId) && isValidId(sessionId) && isValidId(messageId) && isOwner(userId);
+        }
+      }
+
+      // RAG Knowledge Documents (Terminal state locking once indexed)
+      match /documents/{documentId} {
+        allow get: if isValidId(userId) && isValidId(documentId) && isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(documentId) && isOwner(userId) &&
+          isValidKnowledgeDocument(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(documentId) && isOwner(userId) &&
+          isValidKnowledgeDocument(incoming(), userId) &&
+          existing().status == 'processing' &&
+          incoming().userId == existing().userId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'chunkCount', 'status', 'summary', 'updatedAt'
+          ]);
+        allow delete: if isValidId(userId) && isValidId(documentId) && isOwner(userId);
+      }
+
+      // Immutable Audit Logs
+      match /auditLogs/{logId} {
+        allow get: if isValidId(userId) && isValidId(logId) && isOwner(userId);
+        allow list: if isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(logId) && isOwner(userId) &&
+          isValidAuditLog(incoming(), userId) &&
+          incoming().createdAt == request.time;
+        allow update, delete: if false;
+      }
+    }
+  }
+}

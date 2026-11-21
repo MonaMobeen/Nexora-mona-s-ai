@@ -1,0 +1,10 @@
+{
+  "name": "NEXORA AI",
+  "description": "Autonomous multimodal voice agent with Gemini Live API, MCP tool integration, A2A multi-agent orchestration, RAG document intelligence, and user-controlled memory.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
